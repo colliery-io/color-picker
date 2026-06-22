@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Palette Bench</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+  :root {
+    --chrome: #12161c;
+    --chrome-2: #1b2129;
+    --line: #232a34;
+    --text: #e6e9ee;
+    --muted: #8b95a3;
+    --accent: #7fb2ff;
+    --radius: 12px;
+    --sidebar: 300px;
+    --mono: 'IBM Plex Mono', ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  body.collapsed { --sidebar: 0px; }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: var(--sans);
+    color: var(--text);
+    background: #0d0e12;
+    overflow: hidden;
+  }
+
+  /* ---- Workspace: a scrollable document of sections ---- */
+  #stage {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    left: var(--sidebar);
+    background: #0e1116;
+    transition: background-color .15s ease, left .2s ease;
+    overflow-y: auto;
+    padding: 30px 34px 120px;
+    --surface: rgba(255,255,255,.04);
+    --surface-line: rgba(255,255,255,.09);
+    --ink: #e6e9ee;
+    --ink-soft: rgba(255,255,255,.5);
+    --preview-font: var(--sans);
+  }
+  #board { max-width: 1180px; margin: 0 auto; }
+
+  /* prominent preview-font picker, peer to the board sections */
+  #boardbar {
+    max-width: 1180px; margin: 0 auto 22px;
+    display: flex; align-items: center; gap: 14px;
+    padding-bottom: 16px; border-bottom: 1px solid var(--surface-line);
+  }
+  #boardbar .fp-label {
+    font: 600 10px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-soft);
+  }
+  #fontSelect {
+    font-family: var(--preview-font, var(--sans));
+    font-size: 15px; font-weight: 600; color: var(--ink);
+    background: var(--surface); border: 1px solid var(--surface-line);
+    border-radius: 9px; padding: 8px 13px; cursor: pointer; min-width: 240px;
+  }
+  #fontSelect:hover { border-color: var(--accent); }
+  #fontSelect:focus { outline: none; border-color: var(--accent); }
+
+  /* reopen tab */
+  #reopen {
+    position: fixed; top: 14px; left: 14px; z-index: 120;
+    width: 34px; height: 34px; display: none; place-items: center;
+    background: rgba(20,22,28,.92); backdrop-filter: blur(14px);
+    border: 1px solid var(--line); border-radius: 9px; color: var(--text);
+    cursor: pointer; font-size: 16px;
+  }
+  body.collapsed #reopen { display: grid; }
+  #reopen:hover { border-color: var(--accent); }
+
+  /* ---- Sections ---- */
+  .section { margin-bottom: 26px; }
+  .shead {
+    display: flex; align-items: center; gap: 10px;
+    margin: 0 0 11px; padding-bottom: 7px;
+    border-bottom: 1px solid var(--surface-line);
+  }
+  .stitle {
+    font-family: var(--sans);
+    font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-soft); background: none; border: none; outline: none;
+    padding: 2px 0; min-width: 60px; width: auto; flex: 0 1 auto;
+  }
+  .stitle:focus { color: var(--ink); }
+  .sctrl { display: flex; align-items: center; gap: 4px; margin-left: auto; opacity: .25; transition: opacity .12s; }
+  .section:hover .sctrl { opacity: 1; }
+  .sctrl button, .sctrl label {
+    height: 24px; min-width: 24px; padding: 0 7px;
+    display: inline-grid; place-items: center;
+    border: 1px solid var(--surface-line); border-radius: 6px;
+    background: var(--surface); color: var(--ink-soft);
+    font: 500 10.5px/1 var(--mono); cursor: pointer; text-transform: uppercase; letter-spacing: .05em;
+  }
+  .sctrl button:hover, .sctrl label:hover { color: var(--ink); border-color: var(--accent); }
+  .sctrl label input { display: none; }
+
+  /* ---- Card containers ---- */
+  .cards.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(212px, 1fr)); gap: 11px; }
+  .cards.rows { display: flex; flex-direction: column; gap: 3px; }
+  .cards { min-height: 46px; border-radius: 10px; }
+
+  /* ---- Cards ---- */
+  .card {
+    position: relative;
+    background: transparent;            /* swatch bleeds onto the page background */
+    border: 1px solid transparent;
+    border-radius: 10px;
+    cursor: grab;
+  }
+  .card:hover { border-color: var(--surface-line); }
+  .card.drag-src { opacity: .35; }
+  .card-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+  /* GRID — vertical tile: swatch + name on top, context preview below */
+  .cards.grid .card { padding: 11px 12px; display: flex; flex-direction: column; gap: 11px; }
+  .cards.grid .card-head .info { flex: 1 1 auto; }
+
+  /* ROWS — compact single line */
+  .cards.rows .card { padding: 2px 58px 2px 9px; display: flex; align-items: center; gap: 12px; }
+  .cards.rows .card-head { flex: 0 0 170px; gap: 10px; }
+
+  .sw {
+    width: 38px; height: 38px; flex: none;
+    border-radius: 8px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.14), inset 0 0 0 2px rgba(0,0,0,.18), 0 1px 4px rgba(0,0,0,.25);
+  }
+  .cards.rows .sw { width: 26px; height: 26px; border-radius: 6px; }
+  /* the active board background, shown in the Backgrounds section */
+  .card.is-bg .sw { cursor: pointer; }
+  .card.bg-active .sw { box-shadow: 0 0 0 2px var(--accent), 0 0 0 4px rgba(0,0,0,.35); }
+  .bg-tag {
+    position: absolute; top: 6px; right: 8px; z-index: 2;
+    font: 600 8.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+    color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent);
+    border: 1px solid var(--accent); border-radius: 5px; padding: 3px 5px;
+    pointer-events: none; transition: opacity .12s;
+  }
+  .card:hover .bg-tag { opacity: 0; }
+  .info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .name {
+    font-family: var(--preview-font, var(--sans)); font-size: 12.5px; font-weight: 600; color: var(--ink);
+    background: none; border: none; outline: none; padding: 0; width: 100%; min-width: 0;
+    text-overflow: ellipsis;
+  }
+  .name::placeholder { color: var(--ink-soft); font-weight: 400; }
+  .hex {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+    display: flex; gap: 8px; align-items: baseline;
+  }
+  .hex .ratio { opacity: .8; }
+  body.no-labels .info { display: none; }
+
+  /* context preview — now shown in BOTH layouts */
+  .ctx { display: flex; align-items: center; pointer-events: none; gap: 12px; flex-wrap: wrap; }
+  .cards.rows .ctx { margin-left: auto; gap: 10px; flex-wrap: nowrap; }
+  .cdot { width: 10px; height: 10px; border-radius: 3px; }
+  .cards.rows .cdot { width: 9px; height: 9px; }
+  .pill { font: 500 10.5px/1 var(--mono); padding: 4px 11px; border-radius: 11px; }
+  .cards.rows .pill { padding: 3px 9px; font-size: 10px; }
+  .node {
+    font: 500 11px/1 var(--mono); padding: 6px 12px; border-radius: 8px;
+    display: inline-flex; align-items: center; gap: 7px; color: var(--ink);
+  }
+  .cards.rows .node { padding: 4px 9px; font-size: 10px; gap: 6px; }
+  .node .cdot { width: 8px; height: 8px; }
+  .sample { font-family: var(--preview-font, var(--sans)); font-weight: 600; font-size: 14px; }
+  .cards.rows .sample { font-size: 13px; }
+
+  /* hover tools — pinned top-right for both layouts */
+  .tools { position: absolute; top: 6px; right: 6px; z-index: 3; display: flex; gap: 4px; opacity: 0; transition: opacity .12s; }
+  .card:hover .tools { opacity: 1; }
+  .tools .recolor { position: relative; width: 24px; height: 24px; border-radius: 6px; overflow: hidden; cursor: pointer; display: inline-block; }
+  .tools .recolor::after { content: "✎"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 12px; color: #fff; background: rgba(12,14,18,.7); }
+  .tools .recolor input { position: absolute; inset: -4px; width: 130%; height: 130%; border: none; padding: 0; cursor: pointer; opacity: 0; }
+  .del {
+    width: 24px; height: 24px; border: none; border-radius: 6px;
+    background: rgba(12,14,18,.55); color: #fff; cursor: pointer; font-size: 12px;
+    display: grid; place-items: center;
+  }
+  .del:hover { background: #f06464; }
+
+  /* drag placeholder */
+  .placeholder { border: 1px dashed var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .cards.grid .placeholder { height: 58px; }
+  .cards.rows .placeholder { height: 46px; }
+
+  .addcard {
+    border: 1px dashed var(--surface-line); border-radius: 10px;
+    background: none; color: var(--ink-soft); cursor: pointer;
+    font: 500 12px/1 var(--sans); display: inline-grid; place-items: center;
+    min-height: 46px; position: relative;
+  }
+  .cards.grid .addcard { min-height: 58px; }
+  .addcard:hover { color: var(--ink); border-color: var(--accent); }
+  .addcard input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+  #addSection {
+    display: block; margin: 6px auto 0; width: 100%; max-width: 1180px;
+    border: 1px dashed var(--surface-line); border-radius: 10px;
+    background: none; color: var(--ink-soft); cursor: pointer;
+    padding: 14px; font: 600 12px/1 var(--sans); letter-spacing: .03em;
+  }
+  #addSection:hover { color: var(--ink); border-color: var(--accent); }
+
+  /* ---- Control panel ---- */
+  #panel {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: var(--sidebar);
+    background: rgba(18,22,28,.97); backdrop-filter: blur(14px);
+    border-right: 1px solid var(--line); box-shadow: 0 0 50px rgba(0,0,0,.35);
+    display: flex; flex-direction: column; z-index: 100; overflow: hidden;
+    transform: translateX(0); transition: transform .2s ease;
+  }
+  body.collapsed #panel { transform: translateX(-100%); }
+  #panel header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+  }
+  #panel header h1 { font-size: 13px; font-weight: 650; margin: 0; }
+  #panel header .dot { width: 9px; height: 9px; border-radius: 50%; background: linear-gradient(135deg,#7fb2ff,#9d8cff,#5fd0c5); }
+  #collapse { margin-left: auto; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 2px 7px; border-radius: 6px; }
+  #collapse:hover { color: var(--text); background: var(--chrome-2); }
+
+  #panel .body { padding: 12px 14px 16px; overflow-y: auto; }
+  .group { margin-bottom: 16px; }
+  .group:last-child { margin-bottom: 0; }
+  .group > label.title { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); margin-bottom: 7px; font-weight: 600; }
+  .row { display: flex; gap: 7px; align-items: center; }
+  .row + .row { margin-top: 7px; }
+
+  input[type=text], textarea {
+    width: 100%; background: #0f1116; border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 8px 9px; font-family: var(--mono); font-size: 12px;
+  }
+  input[type=text]:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  .body select {
+    width: 100%; background: #0f1116; border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 8px 9px; font-family: var(--sans); font-size: 12px; cursor: pointer;
+  }
+  .body select:focus { outline: none; border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 54px; line-height: 1.5; }
+  .body input[type=color] { width: 36px; height: 36px; flex: 0 0 auto; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: none; cursor: pointer; }
+
+  button.btn {
+    appearance: none; border: 1px solid var(--line); background: var(--chrome-2); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 12px; font-weight: 550; cursor: pointer;
+    font-family: var(--sans); flex: 1;
+  }
+  button.btn:hover { border-color: #3a4252; background: #232733; }
+  button.btn.primary { background: var(--accent); border-color: var(--accent); color: #0d0e12; font-weight: 650; }
+  button.btn.primary:hover { filter: brightness(1.06); }
+  button.btn.ghost { background: none; }
+
+  .toggles { display: flex; gap: 6px; flex-wrap: wrap; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); cursor: pointer; border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; user-select: none; }
+  .toggle input { accent-color: var(--accent); margin: 0; }
+  .toggle.on { color: var(--text); border-color: var(--accent); }
+
+  .hint { font-size: 10.5px; color: var(--muted); line-height: 1.5; margin-top: 8px; }
+  .hint code { font-family: var(--mono); color: var(--text); background: #0f1116; padding: 1px 4px; border-radius: 4px; }
+  details.help summary { cursor: pointer; font-size: 11px; color: var(--muted); list-style: none; }
+  details.help summary::-webkit-details-marker { display: none; }
+  details.help summary:hover { color: var(--text); }
+  details.help[open] summary { color: var(--text); margin-bottom: 6px; }
+
+  #toast {
+    position: fixed; bottom: 18px; left: calc(var(--sidebar) + 50%); transform: translateX(-50%) translateY(20px);
+    background: var(--accent); color: #0d0e12; font-weight: 600; font-size: 12.5px;
+    padding: 9px 16px; border-radius: 9px; opacity: 0; pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease; z-index: 200;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="boardbar">
+      <span class="fp-label">Preview font</span>
+      <select id="fontSelect" title="Preview font"></select>
+    </div>
+    <div id="board"></div>
+    <button id="addSection">+ Add section</button>
+  </div>
+  <button id="reopen" title="Open menu">☰</button>
+
+  <div id="panel">
+    <header>
+      <span class="dot"></span>
+      <h1>Palette Bench</h1>
+      <button id="collapse" title="Hide menu">‹</button>
+    </header>
+    <div class="body">
+
+      <div class="group">
+        <label class="title">Font list</label>
+        <textarea id="fontList" placeholder="Font families, one per line — Inter, Roboto Slab, Lora …" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:7px;">
+          <button class="btn" id="loadFonts">Load fonts</button>
+        </div>
+        <div class="hint">Loaded from Google Fonts, then selectable from the font picker at the top of the board.</div>
+      </div>
+
+      <div class="group">
+        <label class="title">Import a palette</label>
+        <textarea id="paste" placeholder="Paste hex codes — #7fb2ff 4bd07f, rgb(...)&#10;any separator" spellcheck="false"></textarea>
+        <div class="row" style="margin-top:7px;">
+          <button class="btn" id="addPasted">Add as new section</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <label class="title">Share</label>
+        <div class="row">
+          <button class="btn primary" id="copyUrl">Copy share link</button>
+          <button class="btn ghost" id="reset">Reset</button>
+        </div>
+        <div class="row" style="margin-top:7px;">
+          <button class="btn" id="copyBrief">Copy agent brief</button>
+        </div>
+        <details class="help">
+          <summary>URL scheme (for agents)</summary>
+          <div class="hint">
+            A quick hand-writable link auto-builds a board:
+            <br><code>?bg=0e1116&amp;p=7fb2ff,4bd07f,f06464&amp;t=ff8787,3bc9db</code>
+            <br>• <code>bg</code> — background hex (no #)
+            <br>• <code>p</code> — “Palette” section (grid)
+            <br>• <code>t</code> — “Try” section (rows)
+            <br><b>Copy share link</b> emits a fuller <code>?d=</code> token that
+            preserves every section, title, layout, and color name.
+          </div>
+        </details>
+      </div>
+
+      <div class="hint">Drag any card between sections · drag to reorder · hover a section for its controls.</div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const DEFAULT_BG = "#0e1116";
+  const stage = document.getElementById("stage");
+  const board = document.getElementById("board");
+  const toast = document.getElementById("toast");
+
+  let bg = DEFAULT_BG;
+  let sections = [];           // {id, title, layout:'grid'|'rows', cards:[{id,hex,name}]}
+  let uid = 1;
+  let showContrast = true;
+  let fonts = ["IBM Plex Sans", "Inter", "Roboto Slab", "Lora", "Georgia", "system-ui"];
+  let activeFont = fonts[0];
+  let drag = null;             // {cid}
+  const ph = document.createElement("div");
+  ph.className = "placeholder";
+
+  // ---------- color helpers ----------
+  const clampHex = (s) => {
+    if (!s) return null;
+    let m = String(s).trim().toLowerCase();
+    const rgb = m.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+    if (rgb) return "#" + [rgb[1], rgb[2], rgb[3]].map((n) => Math.max(0, Math.min(255, +n)).toString(16).padStart(2, "0")).join("");
+    m = m.replace(/^#/, "");
+    if (/^[0-9a-f]{3}$/.test(m)) m = m.split("").map((c) => c + c).join("");
+    if (/^[0-9a-f]{6}$/.test(m)) return "#" + m;
+    return null;
+  };
+  const lum = (hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    const a = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+  };
+  const contrast = (a, b) => { const l1 = lum(a), l2 = lum(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); };
+
+  // ---------- default board (mirrors the reference card) ----------
+  function defaultSections() {
+    const S = (title, layout, pairs, role) => ({
+      id: uid++, title, layout, role,
+      cards: pairs.map(([name, hex]) => ({ id: uid++, hex, name })),
+    });
+    return [
+      S("Backgrounds", "grid", [["base", "#0e1116"], ["ink", "#0a0c10"], ["slate", "#12161c"], ["panel", "#161a21"], ["paper", "#f1f4f8"]], "bg"),
+      S("Status / semantic", "grid", [["running · ice", "#7fb2ff"], ["completed · ok", "#4bd07f"], ["failed · bad", "#f06464"], ["scheduled · violet", "#9d8cff"], ["cancelled · gold", "#d8a657"], ["pending · muted", "#8b95a3"]]),
+      S("Accents", "grid", [["ice", "#7fb2ff"], ["teal", "#5fd0c5"], ["violet", "#9d8cff"], ["gold", "#d8a657"]]),
+      S("Surfaces & borders", "grid", [["bg", "#0e1116"], ["sidebar", "#12161c"], ["panel", "#161a21"], ["panel-2", "#13171e"], ["inset", "#0a0c10"], ["control", "#1b2129"], ["border", "#232a34"], ["border-control", "#2a3340"]]),
+      S("Text", "grid", [["fg", "#e6e9ee"], ["fg-bright", "#f1f4f8"], ["fg-2", "#c3cbd5"], ["muted", "#8b95a3"], ["faint", "#5b6573"], ["fainter", "#4a525e"]]),
+      S("Skipped — options", "rows", [["failed (reference)", "#f06464"], ["salmon", "#ff8787"], ["cyan", "#3bc9db"], ["mauve", "#b48ead"], ["rose", "#cf83a4"], ["lilac", "#a99bd6"], ["amber", "#e0935a"], ["slate", "#7e8ca6"], ["bronze", "#c0935f"]]),
+    ];
+  }
+
+  // ---------- state <-> URL ----------
+  const b64e = (str) => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const b64d = (s) => decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/"))));
+
+  function readUrl() {
+    const q = new URLSearchParams(location.search);
+    const b = clampHex(q.get("bg"));
+    if (b) bg = b;
+
+    if (q.get("d")) {
+      try {
+        const data = JSON.parse(b64d(q.get("d")));
+        if (data.bg) bg = clampHex(data.bg) || bg;
+        if (Array.isArray(data.ft) && data.ft.length) fonts = data.ft.filter(Boolean);
+        if (data.f) activeFont = data.f;
+        sections = (data.s || []).map((s) => ({
+          id: uid++, title: s.t || "Section", layout: s.l === "r" ? "rows" : "grid",
+          role: s.r === "bg" ? "bg" : undefined,
+          cards: (s.c || []).map((c) => ({ id: uid++, hex: clampHex(c.h) || "#888888", name: c.n || "" })).filter((c) => c.hex),
+        }));
+        if (sections.length) return;
+      } catch (e) { /* fall through */ }
+    }
+
+    const parse = (str) => str ? str.split(/[,\s]+/).map(clampHex).filter(Boolean) : [];
+    const p = parse(q.get("p")), t = parse(q.get("t"));
+    if (p.length || t.length) {
+      sections = [];
+      if (p.length) sections.push({ id: uid++, title: "Palette", layout: "grid", cards: p.map((hex) => ({ id: uid++, hex, name: "" })) });
+      if (t.length) sections.push({ id: uid++, title: "Try", layout: "rows", cards: t.map((hex) => ({ id: uid++, hex, name: "" })) });
+      return;
+    }
+    sections = defaultSections();
+  }
+
+  function buildUrl() {
+    const data = { bg, ft: fonts, f: activeFont, s: sections.map((s) => ({ t: s.title, l: s.layout === "rows" ? "r" : "g", ...(s.role ? { r: s.role } : {}), c: s.cards.map((c) => ({ h: c.hex, n: c.name || "" })) })) };
+    const u = new URL(location.href);
+    u.search = "";
+    u.searchParams.set("d", b64e(JSON.stringify(data)));
+    return u.toString();
+  }
+
+  function agentBrief() {
+    const base = location.origin + location.pathname;
+    return [
+      "# Palette Bench — board spec",
+      "",
+      "Palette Bench renders a color board entirely from its URL. Build a board by",
+      "encoding it into the URL below. Two forms:",
+      "",
+      "Base URL: " + base,
+      "",
+      "## 1) Quick form (hand-writable)",
+      base + "?bg=<hex>&p=<hex,hex,...>&t=<hex,hex,...>",
+      "  bg = page background hex (omit the #)",
+      "  p  = colors shown as a \"Palette\" section (grid cards)",
+      "  t  = colors shown as a \"Try\" section (row cards)",
+      "",
+      "## 2) Full form (sections, names, layout, fonts)",
+      base + "?d=<token>   where token = base64url(JSON.stringify(data))",
+      "",
+      "data = {",
+      '  "bg": "#0e1116",                       // page background',
+      '  "ft": ["Inter","Roboto Slab"],         // optional: Google Font families to offer',
+      '  "f":  "Inter",                          // optional: active preview font',
+      '  "s": [                                  // sections, top to bottom',
+      '    {',
+      '      "t": "Accents",                     // section title',
+      '      "l": "g",                           // layout: "g"=grid, "r"=rows',
+      '      "r": "bg",                          // optional: "bg" = a Backgrounds section',
+      '                                          //   (clicking a card sets the page bg)',
+      '      "c": [ {"h":"#7fb2ff","n":"ice"} ]  // cards: h=hex, n=name',
+      '    }',
+      '  ]',
+      "}",
+      "",
+      "Encode (JS):",
+      "  const token = btoa(unescape(encodeURIComponent(JSON.stringify(data))))",
+      "    .replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');",
+      "  const url = '" + base + "?d=' + token;",
+      "",
+      "## Conventions",
+      "- Include one Backgrounds section (\"r\":\"bg\") with 2-5 candidate page backgrounds.",
+      "- Group colors into meaningful sections, e.g. Backgrounds, Surfaces, Text, Accents, Status.",
+      "- Use \"l\":\"r\" (rows) where contrast detail matters; \"l\":\"g\" (grid) otherwise.",
+      "- Give every color a short, human name.",
+      "- Reply with ONE clickable URL.",
+    ].join("\n");
+  }
+
+  // ---------- rendering ----------
+  function render() {
+    const light = lum(bg) > 0.55;
+    stage.style.background = bg;
+    stage.style.setProperty("--surface", light ? "rgba(0,0,0,.045)" : "rgba(255,255,255,.04)");
+    stage.style.setProperty("--surface-line", light ? "rgba(0,0,0,.12)" : "rgba(255,255,255,.09)");
+    stage.style.setProperty("--ink", light ? "#10131a" : "#e6e9ee");
+    stage.style.setProperty("--ink-soft", light ? "rgba(0,0,0,.55)" : "rgba(255,255,255,.5)");
+
+    board.innerHTML = "";
+    sections.forEach((s, i) => board.appendChild(makeSection(s, i)));
+  }
+
+  function makeSection(s, idx) {
+    const sec = document.createElement("div");
+    sec.className = "section";
+
+    const head = document.createElement("div");
+    head.className = "shead";
+    const title = document.createElement("input");
+    title.className = "stitle"; title.value = s.title; title.spellcheck = false;
+    title.size = Math.max(8, s.title.length);
+    title.addEventListener("input", () => { s.title = title.value; title.size = Math.max(8, title.value.length); });
+    head.appendChild(title);
+
+    const ctrl = document.createElement("div");
+    ctrl.className = "sctrl";
+    const roleBtn = mkSCtrl("BG", s.role === "bg" ? "Backgrounds section (click cards to set the board background) — click to make it a normal section" : "Make this a Backgrounds section (its cards become clickable board backgrounds)", () => { s.role = s.role === "bg" ? undefined : "bg"; render(); });
+    if (s.role === "bg") { roleBtn.style.color = "var(--accent)"; roleBtn.style.borderColor = "var(--accent)"; }
+    const layoutBtn = mkSCtrl(s.layout === "rows" ? "Rows" : "Grid", "Toggle grid / rows", () => { s.layout = s.layout === "rows" ? "grid" : "rows"; render(); });
+    const addLabel = document.createElement("label");
+    addLabel.title = "Add color";
+    addLabel.textContent = "+";
+    const addInput = document.createElement("input");
+    addInput.type = "color"; addInput.value = "#7fb2ff";
+    addInput.addEventListener("input", () => { s.cards.push({ id: uid++, hex: addInput.value, name: "" }); render(); });
+    addLabel.appendChild(addInput);
+    const upBtn = mkSCtrl("▲", "Move section up", () => moveSection(idx, -1));
+    const dnBtn = mkSCtrl("▼", "Move section down", () => moveSection(idx, 1));
+    const delBtn = mkSCtrl("✕", "Delete section", () => { sections = sections.filter((x) => x.id !== s.id); render(); });
+    ctrl.append(roleBtn, layoutBtn, addLabel, upBtn, dnBtn, delBtn);
+    head.appendChild(ctrl);
+    sec.appendChild(head);
+
+    const cards = document.createElement("div");
+    cards.className = "cards " + s.layout;
+    cards.dataset.sid = s.id;
+    s.cards.forEach((c) => cards.appendChild(makeCard(c, s)));
+
+    // inline add-card affordance
+    const add = document.createElement("label");
+    add.className = "addcard"; add.textContent = "+";
+    const ai = document.createElement("input"); ai.type = "color"; ai.value = "#7fb2ff";
+    ai.addEventListener("input", () => { s.cards.push({ id: uid++, hex: ai.value, name: "" }); render(); });
+    add.appendChild(ai);
+    cards.appendChild(add);
+
+    sec.appendChild(cards);
+    return sec;
+  }
+
+  function mkSCtrl(label, title, fn) {
+    const b = document.createElement("button");
+    b.textContent = label; b.title = title;
+    b.addEventListener("click", fn);
+    return b;
+  }
+
+  function makeCard(c, s) {
+    const onBg = lum(bg) > 0.55 ? "#10131a" : "#e6e9ee";
+    const ratio = contrast(c.hex, bg);
+    const isBg = s.role === "bg";
+    const active = isBg && c.hex.toLowerCase() === bg.toLowerCase();
+    const el = document.createElement("div");
+    el.className = "card" + (s.layout === "rows" ? " row" : "") + (isBg ? " is-bg" : "") + (active ? " bg-active" : "");
+    el.draggable = true;
+    el.dataset.cid = c.id;
+
+    const head = document.createElement("div");
+    head.className = "card-head";
+
+    const sw = document.createElement("div");
+    sw.className = "sw"; sw.style.background = c.hex;
+    if (isBg) {
+      sw.title = "Use as board background";
+      sw.addEventListener("click", () => setBg(c.hex));
+    }
+    head.appendChild(sw);
+
+    const info = document.createElement("div");
+    info.className = "info";
+    const name = document.createElement("input");
+    name.className = "name"; name.value = c.name || ""; name.placeholder = "name"; name.spellcheck = false;
+    name.addEventListener("input", () => { c.name = name.value; });
+    // a draggable parent otherwise swallows clicks meant to focus the input
+    name.addEventListener("pointerdown", (e) => e.stopPropagation());
+    name.addEventListener("mousedown", () => { el.draggable = false; });
+    name.addEventListener("focus", () => { el.draggable = false; });
+    name.addEventListener("blur", () => { el.draggable = true; });
+    const hex = document.createElement("div");
+    hex.className = "hex";
+    hex.innerHTML = `<span>${c.hex.toUpperCase()}</span>` + (showContrast ? `<span class="ratio">${ratio.toFixed(2)}:1</span>` : "");
+    info.append(name, hex);
+    head.appendChild(info);
+    el.appendChild(head);
+
+    // context preview — the color as a dot, alpha pill, dashed node, and text sample (both layouts)
+    const ctx = document.createElement("div");
+    ctx.className = "ctx";
+    ctx.innerHTML =
+      `<span class="cdot" style="background:${c.hex}"></span>` +
+      `<span class="pill" style="background:${c.hex}22;color:${c.hex}">pill</span>` +
+      `<span class="node" style="border:1px dashed ${c.hex}"><span class="cdot" style="background:${c.hex}"></span>node</span>` +
+      `<span class="sample" style="color:${c.hex}">Ag</span>`;
+    el.appendChild(ctx);
+
+    if (active) { const tag = document.createElement("span"); tag.className = "bg-tag"; tag.textContent = "active"; el.appendChild(tag); }
+
+    const tools = document.createElement("div");
+    tools.className = "tools";
+    const recolor = document.createElement("label");
+    recolor.className = "recolor"; recolor.title = "Recolor";
+    recolor.style.background = c.hex;
+    const ci = document.createElement("input"); ci.type = "color"; ci.value = c.hex;
+    ci.addEventListener("input", () => { c.hex = ci.value; render(); });
+    recolor.appendChild(ci);
+    const del = document.createElement("button");
+    del.className = "del"; del.textContent = "✕"; del.title = "Delete";
+    del.addEventListener("click", () => { s.cards = s.cards.filter((x) => x.id !== c.id); render(); });
+    tools.append(recolor, del);
+    el.appendChild(tools);
+
+    // drag: cancel when grabbing an interactive child
+    el.addEventListener("dragstart", (e) => {
+      if (e.target.closest("input,button,label")) { e.preventDefault(); return; }
+      drag = { cid: c.id };
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", String(c.id));
+      requestAnimationFrame(() => el.classList.add("drag-src"));
+    });
+    el.addEventListener("dragend", cleanupDrag);
+
+    return el;
+  }
+
+  // ---------- drag & drop (cross-section) ----------
+  function cleanupDrag() {
+    drag = null;
+    if (ph.parentElement) ph.parentElement.removeChild(ph);
+    document.querySelectorAll(".drag-src").forEach((n) => n.classList.remove("drag-src"));
+  }
+
+  board.addEventListener("dragover", (e) => {
+    if (!drag) return;
+    const cards = e.target.closest(".cards");
+    if (!cards) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const cardEl = e.target.closest(".card");
+    if (cardEl) {
+      const r = cardEl.getBoundingClientRect();
+      const after = cards.classList.contains("rows") ? e.clientY > r.top + r.height / 2 : e.clientX > r.left + r.width / 2;
+      cards.insertBefore(ph, after ? cardEl.nextSibling : cardEl);
+    } else {
+      cards.insertBefore(ph, cards.querySelector(".addcard"));
+    }
+  });
+
+  board.addEventListener("drop", (e) => {
+    if (!drag || !ph.parentElement) return cleanupDrag();
+    e.preventDefault();
+    const cards = ph.parentElement;
+    const sid = +cards.dataset.sid;
+    // find the card we'll land before
+    let next = ph.nextElementSibling;
+    while (next && !next.classList.contains("card")) next = next.nextElementSibling;
+    const beforeCid = next ? +next.dataset.cid : null;
+
+    const src = sections.find((s) => s.cards.some((c) => c.id === drag.cid));
+    const tgt = sections.find((s) => s.id === sid);
+    if (!src || !tgt) return cleanupDrag();
+    const card = src.cards.find((c) => c.id === drag.cid);
+    src.cards = src.cards.filter((c) => c.id !== drag.cid);
+    let idx = beforeCid != null ? tgt.cards.findIndex((c) => c.id === beforeCid) : tgt.cards.length;
+    if (idx < 0) idx = tgt.cards.length;
+    tgt.cards.splice(idx, 0, card);
+    cleanupDrag();
+    render();
+  });
+
+  function setBg(hex) { bg = hex; render(); }
+
+  // ---------- fonts ----------
+  const SYSTEM_FONTS = new Set(["system-ui", "ui-sans-serif", "ui-serif", "ui-monospace", "sans-serif", "serif", "monospace", "georgia", "arial", "helvetica", "times new roman", "courier new", "verdana", "tahoma", "inherit"]);
+  function loadFontLinks() {
+    let link = document.getElementById("gfonts");
+    const fams = fonts.filter((f) => f && !SYSTEM_FONTS.has(f.trim().toLowerCase()))
+      .map((f) => "family=" + encodeURIComponent(f.trim()).replace(/%20/g, "+") + ":wght@400;600");
+    if (!fams.length) { if (link) link.remove(); return; }
+    if (!link) { link = document.createElement("link"); link.id = "gfonts"; link.rel = "stylesheet"; document.head.appendChild(link); }
+    link.href = "https://fonts.googleapis.com/css2?" + fams.join("&") + "&display=swap";
+  }
+  function populateFontSelect() {
+    const sel = document.getElementById("fontSelect");
+    sel.innerHTML = "";
+    fonts.forEach((f) => { const o = document.createElement("option"); o.value = f; o.textContent = f; if (f === activeFont) o.selected = true; sel.appendChild(o); });
+  }
+  function applyFont() { stage.style.setProperty("--preview-font", "'" + activeFont + "', ui-sans-serif, system-ui, sans-serif"); }
+  function refreshFonts() { if (!fonts.includes(activeFont)) activeFont = fonts[0] || "system-ui"; loadFontLinks(); populateFontSelect(); applyFont(); }
+
+  function moveSection(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= sections.length) return;
+    [sections[i], sections[j]] = [sections[j], sections[i]];
+    render();
+  }
+
+  // ---------- toast ----------
+  let toastT;
+  function flash(msg) { toast.textContent = msg; toast.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => toast.classList.remove("show"), 1600); }
+
+  // ---------- wiring ----------
+  const $ = (id) => document.getElementById(id);
+
+  $("addPasted").addEventListener("click", () => {
+    const hexes = $("paste").value.split(/[\s,;]+/).map(clampHex).filter(Boolean);
+    if (!hexes.length) return flash("No valid hex found");
+    sections.push({ id: uid++, title: "Pasted", layout: "grid", cards: hexes.map((hex) => ({ id: uid++, hex, name: "" })) });
+    $("paste").value = "";
+    render();
+    stage.scrollTop = stage.scrollHeight;
+  });
+
+  $("loadFonts").addEventListener("click", () => {
+    const list = $("fontList").value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+    if (!list.length) return flash("No font names");
+    fonts = list;
+    refreshFonts();
+    flash("Fonts loaded");
+  });
+  $("fontSelect").addEventListener("change", (e) => { activeFont = e.target.value; applyFont(); });
+
+  $("copyUrl").addEventListener("click", async () => {
+    const url = buildUrl();
+    history.replaceState(null, "", url);
+    try { await navigator.clipboard.writeText(url); flash("Share link copied"); }
+    catch { flash("URL is in the address bar"); }
+  });
+
+  $("copyBrief").addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(agentBrief()); flash("Agent brief copied"); }
+    catch { flash("Copy failed"); }
+  });
+
+  $("reset").addEventListener("click", () => { bg = DEFAULT_BG; sections = defaultSections(); history.replaceState(null, "", location.pathname); render(); });
+  $("addSection").addEventListener("click", () => { sections.push({ id: uid++, title: "New section", layout: "grid", cards: [] }); render(); stage.scrollTop = stage.scrollHeight; });
+
+  $("collapse").addEventListener("click", () => document.body.classList.add("collapsed"));
+  $("reopen").addEventListener("click", () => document.body.classList.remove("collapsed"));
+
+  // ---------- boot ----------
+  readUrl();
+  $("fontList").value = fonts.join("\n");
+  refreshFonts();
+  render();
+})();
+</script>
+</body>
+</html>
